@@ -60,6 +60,121 @@ That uncertainty costs time, confidence, and unnecessary troubleshooting.
 
 ---
 
+## Why This Is Better Than “Heartbeat Missing = OFF”
+
+Heartbeat loss is ambiguous.
+
+* WiFi hiccup?
+* Broker restart?
+* Packet loss?
+
+PowerPulse avoids this entirely.
+
+The broker:
+
+* only publishes LWT when TCP dies uncleanly
+* only retains OFF when it’s confident
+* never guesses
+
+That’s why the system is calm instead of jumpy.
+
+---
+
+## Firmware Versions and Post-Deployment Hardening
+
+PowerPulse firmware is versioned to reflect **real operational learning**, not feature churn.
+
+Both firmware versions are intentionally retained in the repository to document how the system evolved under live conditions.
+
+### PowerBeacon v1.0 – Baseline Release
+
+**Status:** In-house validated
+**Purpose:** Prove correct power presence semantics
+
+v1.0 established the architectural correctness of PowerPulse:
+
+* Broker-driven OFF detection using MQTT LWT
+* Retained `/status` as the single source of truth
+* No hardware power sensing
+* Captive portal configuration
+* LAN-first with fallback broker support
+
+This version confirmed the **core idea was sound**.
+
+---
+
+### What Happened in Live Operation
+
+After continuous real-world runtime, a few issues surfaced that only appear on real networks:
+
+| Observed Issue   | Root Cause                     | Impact                      |
+| ---------------- | ------------------------------ | --------------------------- |
+| False OFF events | Short WiFi outages             | Alert noise                 |
+| Reboot cascades  | Aggressive reboot on WiFi loss | LWT misfires                |
+| Delayed startup  | Blocking NTP sync              | Late state visibility       |
+| Silent hangs     | No watchdog                    | Manual power reset required |
+
+These issues did not break correctness, but they reduced operational confidence.
+
+---
+
+### PowerBeacon v1.1 – Stability Patch
+
+**Status:** Recommended for deployment
+**Purpose:** Eliminate false OFF signals and harden runtime behavior
+
+v1.1 applies **stability-focused patches only**, without altering topics, payloads, or backend expectations.
+
+#### Changes Applied
+
+1. **Timed WiFi reconnect**
+
+   * Reconnect attempts every 5 seconds
+   * Reboot only after ~90 seconds of continuous failure
+   * Short WiFi glitches no longer cause OFF events
+
+2. **Non-blocking NTP**
+
+   * MQTT connects immediately
+   * LWT registered immediately
+   * Timestamp updates asynchronously
+   * Uptime-based timestamps used until time sync resolves
+
+3. **Task watchdog enabled**
+
+   * Automatic recovery from rare firmware stalls
+   * No impact on normal operation
+   * OFF detection remains broker-driven
+
+---
+
+### Firmware Behavior Comparison
+
+| Aspect                    | v1.0             | v1.1         |
+| ------------------------- | ---------------- | ------------ |
+| MQTT topics               | Same             | Same         |
+| JSON payload              | Same             | Same         |
+| OFF detection             | LWT              | LWT          |
+| WiFi handling             | Immediate reboot | Timed retry  |
+| False OFF events          | Possible         | Eliminated   |
+| NTP dependency            | Blocking         | Non-blocking |
+| Watchdog                  | Not enabled      | Enabled      |
+| Deployment recommendation | Reference        | Recommended  |
+
+---
+
+### Backward Compatibility
+
+PowerBeacon v1.1 is fully backward compatible.
+
+* No topic changes
+* No payload changes
+* No backend updates required
+
+Existing dashboards, Node-RED flows, and alerting logic continue to work unchanged.
+
+---
+
 ## The Obvious Solutions (And Why They All Sucked)
 
 Like any sane engineer, I tried existing solutions first.
