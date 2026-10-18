@@ -207,6 +207,10 @@ What else changed (both builds):
 
 Tested on every change: both builds compile for the ESP32, the firmware's encryption code is checked byte for byte against SenseHive, a simulated node runs end to end against SenseHive and a real broker (auto-discovery, manual addition, power cut, forged and copied keys refused), and the real firmware runs on a simulated ESP32 in [Wokwi](https://wokwi.com).
 
+<p align="center">
+  <img src="docs/assets/wokwi-results.svg" width="100%" alt="PowerPulse on a simulated ESP32, measured: found and online at 15.1 s, offline 16.6 s after the power cut" />
+</p>
+
 **Full guide:** [docs/SENSEHIVE.md](docs/SENSEHIVE.md): minimum requirements, both builds step by step, uploading, the portal, topics, how auto-discovery works, tests and troubleshooting.
 
 ---

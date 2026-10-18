@@ -191,6 +191,10 @@ plain C on the ESP32's built-in mbedTLS, so no extra library is needed.
 
 ## How it is tested
 
+![The real PowerPulse firmware on a simulated ESP32 against SenseHive, and the test layers](assets/validate-without-hardware.svg)
+
+![PowerPulse on a simulated ESP32, measured: found and online at 15.1 s, offline 16.6 s after the power cut](assets/wokwi-results.svg)
+
 Every push and pull request (and weekly, against SenseHive's latest `main`):
 
 | Test | What it proves |
