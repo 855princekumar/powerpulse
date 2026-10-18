@@ -66,6 +66,11 @@ def report(variant, stats):
     if os.getenv('PP_STATS_FILE'):
         with open(os.environ['PP_STATS_FILE'], 'a', encoding='utf-8') as f:
             f.write(line + '\n')
+    if os.getenv('GITHUB_STEP_SUMMARY'):                   # a table on the CI run's page
+        with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as f:
+            f.write(f'### PowerPulse {variant} build on a simulated ESP32\n\n| Measure | Value |\n| --- | --- |\n')
+            f.writelines(f'| {k} | {v} |\n' for k, v in sorted(stats.items()))
+            f.write('\n')
 
 
 def secure_rejected(sensehive):
