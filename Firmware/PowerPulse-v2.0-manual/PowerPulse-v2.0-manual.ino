@@ -68,6 +68,7 @@ unsigned long wifiFailStart = 0;
 unsigned long lastWifiRetry = 0;
 unsigned long lastMqttRetry = 0;
 unsigned long lastWarning   = 0;
+bool wdtArmed = false;
 
 // Settings: config.h, overridden by what was saved in the setup portal (NVS)
 String mqttHost, mqttUser, mqttPass;
@@ -134,7 +135,7 @@ String beaconTopic() {
 }
 
 bool connectMQTT(const char* host, int port, const char* user, const char* pass) {
-  esp_task_wdt_reset();                    // a connect can take a few seconds
+  if (wdtArmed) esp_task_wdt_reset();      // a connect can take a few seconds
   mqtt.setServer(host, port);
   clientId = baseTopic + "-" + WiFi.macAddress();
 
@@ -326,8 +327,10 @@ void setup() {
     .idle_core_mask = 0,
     .trigger_panic = true
   };
-  if (esp_task_wdt_init(&wdt_config) == ESP_ERR_INVALID_STATE) esp_task_wdt_reconfigure(&wdt_config);
+  // The Arduino core starts the watchdog at boot: change its settings, or start it if a build did not
+  if (esp_task_wdt_reconfigure(&wdt_config) != ESP_OK) esp_task_wdt_init(&wdt_config);
   esp_task_wdt_add(NULL);
+  wdtArmed = true;
 }
 // ============================================
 

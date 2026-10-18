@@ -128,6 +128,7 @@ def test_the_firmware_refuses_bad_keys_and_oversized_payloads():
 # ---------------------------------------------------------------- end to end
 
 def test_auto_discovery_a_secure_node_appears_by_itself_and_shows_power_loss(sensehive):
+    need(SEAL_CLI.is_file(), f'{SEAL_CLI} not built')
     key = new_key(sensehive, 'powerpulse-lab')
     pp = PowerPulseNode(base_topic('auto'), secure=key)
     try:
@@ -180,6 +181,7 @@ def test_manual_a_plain_node_is_logged_only_once_added(sensehive):
 
 
 def test_strangers_on_the_secure_root_are_never_discovered(sensehive):
+    need(SEAL_CLI.is_file(), f'{SEAL_CLI} not built')
     root = sensehive['root']
     before = rejected(sensehive)
     pp = PowerPulseNode(base_topic('stranger'))
@@ -200,6 +202,7 @@ def test_strangers_on_the_secure_root_are_never_discovered(sensehive):
 
 
 def test_one_key_per_node_a_copied_key_cannot_add_a_second_node(sensehive):
+    need(SEAL_CLI.is_file(), f'{SEAL_CLI} not built')
     key = new_key(sensehive, 'shared-by-mistake')
     first, second = PowerPulseNode(base_topic('first'), secure=key), PowerPulseNode(base_topic('second'), secure=key)
     try:

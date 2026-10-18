@@ -76,7 +76,6 @@ def free_port():
 def sensehive(tmp_path_factory):
     need((SENSEHIVE_DIR / 'app.py').is_file(), f'SenseHive not found at {SENSEHIVE_DIR} (set SENSEHIVE_DIR)')
     need(broker_up(), f'no MQTT broker at {BROKER_HOST}:{BROKER_PORT} (set PP_TEST_BROKER)')
-    need(SEAL_CLI.is_file(), f'{SEAL_CLI} not built (see test/host/seal_cli.c)')
     data = tmp_path_factory.mktemp('sensehive')
     port = free_port()
     root = f'pp-test-{uuid.uuid4().hex[:8]}/secure'           # its own root: parallel runs never meet
