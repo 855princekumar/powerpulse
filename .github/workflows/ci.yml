@@ -1,0 +1,198 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 4 * * 1"          # weekly: still works with SenseHive's latest main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  ARDUINO_CLI_VERSION: "1.3.1"
+  ARDUINO_CLI_SHA256: "376428d7d45be640c00812a71612e1742edc2f5f9ee3742a2d6da7870e079588"
+  ESP32_CORE: "esp32:esp32@3.3.12"
+  WOKWI_CLI_VERSION: "v0.27.1"
+  WOKWI_CLI_SHA256: "c3faa32b752c63762a9e4852288f0ce26952475ade16c95ebb8f61a272425633"
+
+jobs:
+  firmware:
+    name: Firmware builds (ESP32, auto and manual)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      - name: Both builds are the same sketch (only config.h differs)
+        run: cmp Firmware/PowerPulse-v2.0-auto/PowerPulse-v2.0-auto.ino Firmware/PowerPulse-v2.0-manual/PowerPulse-v2.0-manual.ino
+
+      - name: Install arduino-cli, the ESP32 core and the libraries
+        run: |
+          curl -fsSL -o /tmp/acli.tgz "https://github.com/arduino/arduino-cli/releases/download/v${ARDUINO_CLI_VERSION}/arduino-cli_${ARDUINO_CLI_VERSION}_Linux_64bit.tar.gz"
+          echo "${ARDUINO_CLI_SHA256}  /tmp/acli.tgz" | sha256sum -c -
+          mkdir -p "$HOME/bin" && tar -xzf /tmp/acli.tgz -C "$HOME/bin" arduino-cli
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/bin:$PATH"
+          arduino-cli config init
+          arduino-cli config set board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install "$ESP32_CORE"
+          arduino-cli lib install "WiFiManager@2.0.17" "PubSubClient@2.8" "ArduinoJson@7.4.2"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
+        with:
+          python-version: "3.12"
+
+      - name: Build as shipped (empty config.h)
+        run: |
+          arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all --output-dir shipped/auto Firmware/PowerPulse-v2.0-auto
+          arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all --output-dir shipped/manual Firmware/PowerPulse-v2.0-manual
+
+      - name: Build with every setting filled in (as a user fills config.h)
+        run: |
+          python test/firmware.py auto --out build/auto PP_WIFI_SSID=my-wifi PP_WIFI_PASS='p"w\d' PP_MQTT_HOST=192.168.1.10 \
+            PP_MQTT_PORT=1883 PP_BASE_TOPIC=pump-house PP_LOCATION=site-a SH_KEY_ID=0123456789abcdef \
+            SH_KEY=00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff SH_ROOT=sensehive/secure
+          python test/firmware.py manual --out build/manual PP_WIFI_SSID=my-wifi PP_BASE_TOPIC=pump-house
+          grep -q 0123456789abcdef build/auto/PowerPulse-v2.0-auto.ino.bin
+          ls -l build/auto build/manual
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: powerpulse-v2.0-firmware
+          path: |
+            shipped/auto/*.merged.bin
+            shipped/manual/*.merged.bin
+          retention-days: 30
+
+  sensehive:
+    name: End to end with SenseHive (simulated node, real broker)
+    runs-on: ubuntu-latest
+    services:
+      mosquitto:
+        image: eclipse-mosquitto:1.6           # accepts anonymous clients on 1883 without a config file
+        ports:
+          - 1883:1883
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          path: powerpulse
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          repository: 855princekumar/sense-hive
+          ref: main
+          path: sense-hive
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
+        with:
+          python-version: "3.12"
+
+      - name: Build the firmware's encryption code for this machine
+        run: |
+          sudo apt-get -qq update && sudo apt-get -qq install -y libmbedtls-dev
+          cc -O2 -Wall -Wextra -Werror -o seal_cli powerpulse/test/host/seal_cli.c -lmbedcrypto
+
+      - name: Tests
+        env:
+          SENSEHIVE_DIR: ${{ github.workspace }}/sense-hive/version-1.0
+          SEAL_CLI: ${{ github.workspace }}/seal_cli
+          PP_TEST_BROKER: localhost:1883
+        run: |
+          pip install -r sense-hive/version-1.0/requirements.txt -r powerpulse/test/requirements.txt
+          python -m pytest -v powerpulse/test/test_sensehive_e2e.py
+
+  wokwi:
+    name: Real firmware on a simulated ESP32 (Wokwi)
+    runs-on: ubuntu-latest
+    env:
+      WOKWI_CLI_TOKEN: ${{ secrets.WOKWI_CLI_TOKEN }}
+    steps:
+      - name: Needs the WOKWI_CLI_TOKEN secret
+        if: env.WOKWI_CLI_TOKEN == ''
+        run: echo "::notice::WOKWI_CLI_TOKEN not set (forks, or not set up yet): the Wokwi test is skipped. Get a token at https://wokwi.com/dashboard/ci"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        if: env.WOKWI_CLI_TOKEN != ''
+        with:
+          path: powerpulse
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        if: env.WOKWI_CLI_TOKEN != ''
+        with:
+          repository: 855princekumar/sense-hive
+          ref: main
+          path: sense-hive
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
+        if: env.WOKWI_CLI_TOKEN != ''
+        with:
+          python-version: "3.12"
+
+      - name: Install arduino-cli, the ESP32 core, the libraries and wokwi-cli
+        if: env.WOKWI_CLI_TOKEN != ''
+        run: |
+          curl -fsSL -o /tmp/acli.tgz "https://github.com/arduino/arduino-cli/releases/download/v${ARDUINO_CLI_VERSION}/arduino-cli_${ARDUINO_CLI_VERSION}_Linux_64bit.tar.gz"
+          echo "${ARDUINO_CLI_SHA256}  /tmp/acli.tgz" | sha256sum -c -
+          mkdir -p "$HOME/bin" && tar -xzf /tmp/acli.tgz -C "$HOME/bin" arduino-cli
+          curl -fsSL -o "$HOME/bin/wokwi-cli" "https://github.com/wokwi/wokwi-cli/releases/download/${WOKWI_CLI_VERSION}/wokwi-cli-linuxstatic-x64"
+          echo "${WOKWI_CLI_SHA256}  $HOME/bin/wokwi-cli" | sha256sum -c -
+          chmod +x "$HOME/bin/wokwi-cli"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/bin:$PATH"
+          arduino-cli config init
+          arduino-cli config set board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install "$ESP32_CORE"
+          arduino-cli lib install "WiFiManager@2.0.17" "PubSubClient@2.8" "ArduinoJson@7.4.2"
+          sudo apt-get -qq update && sudo apt-get -qq install -y libmbedtls-dev
+          cc -O2 -Wall -Wextra -Werror -o "$GITHUB_WORKSPACE/seal_cli" powerpulse/test/host/seal_cli.c -lmbedcrypto
+
+      - name: Simulated ESP32 against SenseHive over the public broker
+        if: env.WOKWI_CLI_TOKEN != ''
+        env:
+          SENSEHIVE_DIR: ${{ github.workspace }}/sense-hive/version-1.0
+          SEAL_CLI: ${{ github.workspace }}/seal_cli
+          PP_TEST_BROKER: broker.hivemq.com:1883
+        run: |
+          pip install -r sense-hive/version-1.0/requirements.txt -r powerpulse/test/requirements.txt
+          python -m pytest -v powerpulse/test/test_wokwi.py
+
+  lint:
+    name: Lint and repository checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
+        with:
+          python-version: "3.12"
+      - name: ruff (test code)
+        run: |
+          pip install ruff==0.6.9
+          ruff check --select F,E,W,B --line-length 140 test
+      - name: Wokwi diagram
+        run: |
+          curl -fsSL -o /tmp/wokwi-cli "https://github.com/wokwi/wokwi-cli/releases/download/${WOKWI_CLI_VERSION}/wokwi-cli-linuxstatic-x64"
+          echo "${WOKWI_CLI_SHA256}  /tmp/wokwi-cli" | sha256sum -c -
+          chmod +x /tmp/wokwi-cli && /tmp/wokwi-cli lint test/wokwi
+      - name: No em dashes
+        run: |
+          em="$(printf '\342\200\224')"
+          if git grep -nI -e "$em" -e '&mdash;' -- . ':!.github/workflows/ci.yml'; then
+            echo "::error::Em dash found. Project style: use a colon, comma or parentheses instead."
+            exit 1
+          fi
+      - name: Authorship stays with the maintainer
+        run: |
+          w="$(printf 'c%s' laude)"
+          if git grep -nIi -e "$w" -- . ':!.github/workflows/ci.yml'; then echo "::error::Unexpected name in the repository"; exit 1; fi
+      - name: No secrets filled in config.h
+        run: |
+          for f in Firmware/PowerPulse-v2.0-*/config.h; do
+            if grep -nE '^#define (SH_KEY_ID|SH_KEY|PP_WIFI_PASS|PP_MQTT_PASS) "[^"]+"' "$f"; then
+              echo "::error file=$f::A key or password is filled in; ship config.h empty"
+              exit 1
+            fi
+          done
