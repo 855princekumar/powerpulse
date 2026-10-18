@@ -159,7 +159,7 @@ jobs:
           PP_TEST_BROKER: broker.hivemq.com:1883
         run: |
           pip install -r sense-hive/version-1.0/requirements.txt -r powerpulse/test/requirements.txt
-          python -m pytest -v powerpulse/test/test_wokwi.py
+          python -m pytest -v -s powerpulse/test/test_wokwi.py
 
   lint:
     name: Lint and repository checks

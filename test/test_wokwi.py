@@ -41,17 +41,37 @@ def simulate(variant, out, log):
     name = firmware.sketch_name(variant)
     shutil.copy(os.path.join(HERE, 'wokwi', 'diagram.json'), out / 'diagram.json')
     (out / 'wokwi.toml').write_text(f"[wokwi]\nversion = 1\nfirmware = '{name}.ino.merged.bin'\nelf = '{name}.ino.elf'\n")
-    return subprocess.Popen([WOKWI_CLI, '--timeout', str(SIM_SECONDS * 1000), '--timeout-exit-code', '0',
-                             '--serial-log-file', str(log), str(out)])
+    cli = open(out / 'cli.log', 'w')
+    proc = subprocess.Popen([WOKWI_CLI, '--timeout', str(SIM_SECONDS * 1000), '--timeout-exit-code', '0',
+                             '--serial-log-file', str(log), str(out)], stdout=cli, stderr=subprocess.STDOUT)
+    proc.cli_log = out / 'cli.log'
+    return proc
+
+
+class WokwiDropped(Exception):
+    """Wokwi's cloud dropped the simulation (its API or connection), not the firmware."""
 
 
 def finish(proc, log):
     rc = proc.wait(SIM_SECONDS + 60)
     text = log.read_text(errors='replace') if log.exists() else ''
+    cli = proc.cli_log.read_text(errors='replace') if proc.cli_log.exists() else ''
     if IN_CI or rc:
+        print(cli[-2000:])
         print(text[-6000:])
+    if rc and ('API Error' in cli or 'transport closed' in cli or 'ECONNRESET' in cli):
+        raise WokwiDropped(cli.strip().splitlines()[-1] if cli.strip() else 'no output')
     assert rc == 0, f'wokwi-cli exit {rc}'
     return text
+
+
+def with_retry(run, tmp_path):
+    """One more try only when Wokwi's cloud dropped the simulation; a firmware failure fails at once."""
+    try:
+        return run(tmp_path / 'try1')
+    except WokwiDropped as e:
+        print(f'Wokwi dropped the simulation ({e}); trying once more')
+        return run(tmp_path / 'try2')
 
 
 def settings(base):
@@ -66,6 +86,11 @@ def report(variant, stats):
     if os.getenv('PP_STATS_FILE'):
         with open(os.environ['PP_STATS_FILE'], 'a', encoding='utf-8') as f:
             f.write(line + '\n')
+    if os.getenv('GITHUB_STEP_SUMMARY'):                   # a table on the CI run's page
+        with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as f:
+            f.write(f'### PowerPulse {variant} build on a simulated ESP32\n\n| Measure | Value |\n| --- | --- |\n')
+            f.writelines(f'| {k} | {v} |\n' for k, v in sorted(stats.items()))
+            f.write('\n')
 
 
 def secure_rejected(sensehive):
@@ -73,6 +98,10 @@ def secure_rejected(sensehive):
 
 
 def test_auto_discovery_on_a_simulated_esp32(sensehive, tmp_path):
+    with_retry(lambda tmp: auto_discovery(sensehive, tmp), tmp_path)
+
+
+def auto_discovery(sensehive, tmp_path):
     key = new_key(sensehive, 'powerpulse-wokwi')
     base = base_topic('wokwi-auto')
     topic = f"{sensehive['root']}/{base}/powerbeacon"
@@ -110,6 +139,10 @@ def test_auto_discovery_on_a_simulated_esp32(sensehive, tmp_path):
 
 
 def test_manual_topic_on_a_simulated_esp32(sensehive, tmp_path):
+    with_retry(lambda tmp: manual_topic(sensehive, tmp), tmp_path)
+
+
+def manual_topic(sensehive, tmp_path):
     base = base_topic('wokwi-manual')
     topic = f'{base}/powerbeacon'
     r = sensehive['http'].post(sensehive['url'] + '/api/nodes', json={
