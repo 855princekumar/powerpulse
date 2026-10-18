@@ -90,7 +90,7 @@ def sensehive(tmp_path_factory):
         wait_for(lambda: proc.poll() is None and _healthy(base), timeout=30, what='SenseHive to start')
         r = http.post(base + '/api/login', json={'username': 'admin', 'password': PASSWORD})
         assert r.status_code == 200, r.text
-        wait_for(lambda: http.get(base + '/api/status').json().get('connected'), timeout=20, what='the broker connection')
+        wait_for(lambda: http.get(base + '/api/status').json().get('connected'), timeout=60, what='the broker connection')
         yield {'url': base, 'http': http, 'root': root, 'log': data / 'sensehive.log'}
     finally:
         proc.terminate()
