@@ -114,7 +114,8 @@ jobs:
     steps:
       - name: Needs the WOKWI_CLI_TOKEN secret
         if: env.WOKWI_CLI_TOKEN == ''
-        run: echo "::notice::WOKWI_CLI_TOKEN not set (forks, or not set up yet): the Wokwi test is skipped. Get a token at https://wokwi.com/dashboard/ci"
+        run: |
+          echo "::notice::WOKWI_CLI_TOKEN not set (forks, or not set up yet): the Wokwi test is skipped. Get a token at https://wokwi.com/dashboard/ci"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         if: env.WOKWI_CLI_TOKEN != ''
