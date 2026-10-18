@@ -9,6 +9,8 @@
   <img src="https://img.shields.io/badge/Config-Captive%20Portal-334155?style=flat-square" />
   <img src="https://img.shields.io/badge/Hardware-Minimalist-16a34a?style=flat-square" />
   <img src="https://img.shields.io/badge/Status-In--House%20Validated-22c55e?style=flat-square" />
+  <a href="https://github.com/855princekumar/sense-hive"><img src="https://img.shields.io/badge/Works%20with-SenseHive%201.7%2B-f59e0b?style=flat-square" /></a>
+  <a href="https://github.com/855princekumar/powerpulse/actions/workflows/ci.yml"><img src="https://github.com/855princekumar/powerpulse/actions/workflows/ci.yml/badge.svg" /></a>
 </p>
 <!-- ==================================================== -->
 
@@ -159,7 +161,7 @@ v1.1 applies **stability-focused patches only**, without altering topics, payloa
 | False OFF events          | Possible         | Eliminated   |
 | NTP dependency            | Blocking         | Non-blocking |
 | Watchdog                  | Not enabled      | Enabled      |
-| Deployment recommendation | Reference        | Recommended  |
+| Deployment recommendation | Reference        | Recommended (v1.x topics); v2.0 for SenseHive |
 
 ---
 
@@ -172,6 +174,40 @@ PowerBeacon v1.1 is fully backward compatible.
 * No backend updates required
 
 Existing dashboards, Node-RED flows, and alerting logic continue to work unchanged.
+
+---
+
+### PowerPulse v2.0 – Made for SenseHive
+
+**Status:** Recommended for new nodes
+**Purpose:** Flash it, plug it in, and [SenseHive](https://github.com/855princekumar/sense-hive) finds it
+
+v2.0 comes in two builds of one sketch:
+
+| Build | Folder | In SenseHive |
+| ----- | ------ | ------------ |
+| **Auto-discovery** (secure) | [`Firmware/PowerPulse-v2.0-auto`](Firmware/PowerPulse-v2.0-auto) | Appears by itself under **Secure topics**: the beacon is encrypted and signed with a per-node key from SenseHive, so only SenseHive can read it, even on a public broker |
+| **Manual** (plain) | [`Firmware/PowerPulse-v2.0-manual`](Firmware/PowerPulse-v2.0-manual) | Add the topic and its status topic by hand under **Open topics** |
+
+Quick start (auto-discovery):
+
+1. SenseHive 1.7+: **Topic logs**, **Secure topics**, **Generate keys** (one per node), download the CSV.
+2. Put one key id and key in `Firmware/PowerPulse-v2.0-auto/config.h` (or enter them later in the setup portal).
+3. Upload to the ESP32 and power it. It joins Wi-Fi (or opens the `PowerPulse-Setup` portal), and SenseHive shows it within seconds, online; a power cut shows it offline.
+
+What else changed (both builds):
+
+* Settings in `config.h` or the portal; saved portal values win
+* A unique default base topic per board (`powerpulse-<MAC>`) instead of `espnode-1`
+* Built-in SNTP time with UTC ISO timestamps (no NTPClient library)
+* 1 KB MQTT buffer, so a long or sealed beacon is never dropped
+* The beacon is never retained (v1.1 passed the QoS as the retain flag)
+* The watchdog is armed after Wi-Fi setup, so an open portal cannot trip it; the portal restarts the node after 5 minutes
+* `<base>/status` is unchanged: existing dashboards and alerts keep working
+
+Tested on every change: both builds compile for the ESP32, the firmware's encryption code is checked byte for byte against SenseHive, a simulated node runs end to end against SenseHive and a real broker (auto-discovery, manual addition, power cut, forged and copied keys refused), and the real firmware runs on a simulated ESP32 in [Wokwi](https://wokwi.com).
+
+**Full guide:** [docs/SENSEHIVE.md](docs/SENSEHIVE.md): minimum requirements, both builds step by step, uploading, the portal, topics, how auto-discovery works, tests and troubleshooting.
 
 ---
 

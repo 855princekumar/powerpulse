@@ -1,0 +1,6 @@
+build/
+shipped/
+__pycache__/
+.pytest_cache/
+test/host/seal_cli
+test/host/seal_cli.exe
